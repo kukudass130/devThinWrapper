@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,65 @@ export default function Settings() {
   const [gmailTestLoading, setGmailTestLoading] = useState(false);
   const [diagnosisLoading, setDiagnosisLoading] = useState(false);
   const [scopeLoading, setScopeLoading] = useState(false);
+  const [gmailThreads, setGmailThreads] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // 백엔드 개발자 제안: n8n Webhook 호출 → Supabase에 업서트된 후 로컬 조회
+  useEffect(() => {
+    const syncAndFetch = async () => {
+      // 세션 가져오기
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session?.provider_token) return;
+
+      setLoading(true);
+      try {
+        console.log('🔄 자동 Gmail 동기화 시작...');
+        
+        // 1) n8n Webhook 호출 (사용자별 액세스 토큰 전달)
+        const webhookUrl = 'https://n8n.1000.school/webhook/gmail-sync';
+        const webhookResponse = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ access_token: session.provider_token }),
+        });
+
+        console.log('n8n 응답:', {
+          status: webhookResponse.status,
+          statusText: webhookResponse.statusText
+        });
+
+        // 2) 잠시 대기 후 Supabase에서 최근 10개 레코드 조회
+        console.log('⏳ n8n 처리 대기 중...');
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        const { data, error } = await supabase
+          .from('gmail_emails')
+          .select('*')
+          .order('received_at', { ascending: false })
+          .limit(10);
+
+        if (error) {
+          console.error('Supabase 조회 에러:', error);
+        } else {
+          console.log('✅ 자동 동기화 완료, 메일 수:', data?.length || 0);
+          setGmailThreads(data || []);
+          
+          // 로컬 스토리지에도 저장
+          if (data && data.length > 0) {
+            localStorage.setItem('gmail_emails_auto_sync', JSON.stringify(data));
+          }
+        }
+      } catch (err) {
+        console.error('자동 Gmail 동기화 중 에러:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // 컴포넌트 마운트시 자동 동기화 실행
+    syncAndFetch();
+  }, []); // 컴포넌트 마운트시 한 번만 실행
 
   const handleGmailReconnect = async () => {
     try {
@@ -338,8 +397,8 @@ export default function Settings() {
     try {
       setTestLoading(true);
       
-      console.log('=== Gmail Sync API 테스트 시작 ===');
-      console.log('테스트 시작 시간:', new Date().toISOString());
+      console.log('=== Gmail Sync & Supabase 조회 시작 ===');
+      console.log('시작 시간:', new Date().toISOString());
       
       // 현재 세션에서 토큰 가져오기
       const { data: { session } } = await supabase.auth.getSession();
@@ -349,122 +408,69 @@ export default function Settings() {
         throw new Error('Provider token이 없습니다. 먼저 Google 로그인을 하세요.');
       }
       
-      console.log('📤 API 요청 정보:');
+      console.log('📤 1단계: n8n Webhook 호출');
       console.log('- URL:', 'https://n8n.1000.school/webhook/gmail-sync');
-      console.log('- Method:', 'POST');
-      console.log('- Content-Type:', 'application/json');
       console.log('- Token 길이:', accessToken.length);
-      console.log('- 요청 시간:', new Date().toISOString());
       
-      // 네트워크 요청 시작
-      const startTime = performance.now();
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30초 타임아웃
+      // 1단계: n8n Webhook 호출 (Supabase에 데이터 저장)
+      const webhookResponse = await fetch('https://n8n.1000.school/webhook/gmail-sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          access_token: accessToken
+        })
+      });
       
-      try {
-        const response = await fetch('https://n8n.1000.school/webhook/gmail-sync', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            access_token: accessToken
-          }),
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        const endTime = performance.now();
-        const duration = Math.round(endTime - startTime);
-        
-        console.log('📥 API 응답 정보:');
-        console.log('- 응답 시간:', duration + 'ms');
-        console.log('- 상태 코드:', response.status);
-        console.log('- 상태 텍스트:', response.statusText);
-        console.log('- Content-Type:', response.headers.get('content-type'));
-        console.log('- 응답 크기:', response.headers.get('content-length') || '알 수 없음');
-        
-        // 응답 헤더 전체 출력
-        console.log('📋 모든 응답 헤더:');
-        const headers = Array.from(response.headers.entries());
-        headers.forEach(([key, value]) => {
-          console.log(`  ${key}: ${value}`);
-        });
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('❌ API 오류 응답:');
-          console.error('- 오류 텍스트:', errorText);
-          
-          alert(`API 테스트 실패 ❌\n\n상태: ${response.status} ${response.statusText}\n응답 시간: ${duration}ms\n오류: ${errorText}\n\n자세한 내용은 Console을 확인하세요.`);
-          return;
-        }
-        
-        const responseText = await response.text();
-        console.log('📄 원본 응답 텍스트:');
-        console.log(responseText);
-        
-        let result;
-        try {
-          result = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error('❌ JSON 파싱 실패:', parseError);
-          alert(`API 응답이 유효한 JSON이 아닙니다:\n\n${responseText.substring(0, 200)}...\n\n자세한 내용은 Console을 확인하세요.`);
-          return;
-        }
-        
-        console.log('✅ 파싱된 응답 데이터:');
-        console.log('- 타입:', typeof result);
-        console.log('- 키들:', Array.isArray(result) ? `[배열, 길이: ${result.length}]` : Object.keys(result));
-        console.log('- 전체 데이터:', result);
-        
-        // 메일 데이터 분석
-        let emailCount = 0;
-        let emails = [];
-        
-        if (Array.isArray(result)) {
-          emailCount = result.length;
-          emails = result;
-        } else if (result.emails && Array.isArray(result.emails)) {
-          emailCount = result.emails.length;
-          emails = result.emails;
-        } else if (result.data && Array.isArray(result.data)) {
-          emailCount = result.data.length;
-          emails = result.data;
-        }
-        
-        console.log('📧 메일 데이터 분석:');
-        console.log('- 메일 수:', emailCount);
-        if (emailCount > 0) {
-          console.log('- 첫 번째 메일:', emails[0]);
-          console.log('- 메일 키들:', Object.keys(emails[0] || {}));
-        }
-        
-        if (result.message === "Workflow was started") {
-          alert(`워크플로우 시작됨! 🔄\n\n📊 API 응답:\n- 응답 시간: ${duration}ms\n- 상태: ${response.status} ${response.statusText}\n- 메시지: ${result.message}\n\n⚠️ 이 API는 비동기로 동작합니다.\n메일 데이터는 백그라운드에서 처리 중이며,\n완료 후 다른 API나 저장소에서 확인 가능할 것입니다.\n\n백엔드 개발자에게 결과 조회 방법을 문의하세요!`);
-        } else {
-          alert(`API 테스트 성공! ✅\n\n📊 결과:\n- 응답 시간: ${duration}ms\n- 상태: ${response.status} ${response.statusText}\n- 메일 수: ${emailCount}개\n- 응답 크기: ${responseText.length} bytes\n\n자세한 내용은 Console을 확인하세요.`);
-        }
-        
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-          console.error('❌ 요청 타임아웃 (30초)');
-          alert('API 요청이 타임아웃되었습니다 (30초)');
-        } else {
-          console.error('❌ 네트워크 오류:', fetchError);
-          const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
-          alert(`네트워크 오류: ${errorMessage}`);
-        }
+      console.log('📥 n8n 응답:', {
+        status: webhookResponse.status,
+        statusText: webhookResponse.statusText
+      });
+      
+      if (!webhookResponse.ok) {
+        const errorText = await webhookResponse.text();
+        throw new Error(`n8n Webhook 호출 실패: ${webhookResponse.status} - ${errorText}`);
       }
       
+      const webhookResult = await webhookResponse.json();
+      console.log('n8n 응답 데이터:', webhookResult);
+      
+      // 2단계: 잠시 기다린 후 Supabase에서 데이터 조회
+      console.log('⏳ 2단계: n8n 처리 대기 (5초)...');
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      console.log('📥 3단계: Supabase에서 Gmail 데이터 조회');
+      const { data: gmailData, error } = await supabase
+        .from('gmail_emails')
+        .select('*')
+        .order('received_at', { ascending: false })
+        .limit(10);
+      
+      if (error) {
+        console.error('Supabase 조회 에러:', error);
+        throw new Error(`Supabase 조회 실패: ${error.message}`);
+      }
+      
+      console.log('✅ Supabase 조회 결과:');
+      console.log('- 메일 수:', gmailData?.length || 0);
+      console.log('- 데이터:', gmailData);
+      
+      // 로컬 스토리지에 저장
+      if (gmailData && gmailData.length > 0) {
+        localStorage.setItem('gmail_emails_from_supabase', JSON.stringify(gmailData));
+        console.log('✅ 로컬 스토리지에 저장 완료');
+      }
+      
+      alert(`Gmail 동기화 완료! 🎉\n\n📊 결과:\n- n8n 응답: ${webhookResult.message || 'Success'}\n- Supabase 메일 수: ${gmailData?.length || 0}개\n\n${gmailData?.length ? '대시보드에서 메일을 확인하세요!' : 'n8n 워크플로우가 아직 처리 중일 수 있습니다.'}`);
+      
     } catch (error) {
-      console.error('=== API 테스트 실패 ===');
+      console.error('=== Gmail Sync 실패 ===');
       console.error('오류:', error);
-      alert(`API 테스트 실패: ${error instanceof Error ? error.message : '알 수 없는 오류'}`);
+      alert(`Gmail 동기화 실패 ❌\n\n오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}\n\n자세한 내용은 Console을 확인하세요.`);
     } finally {
       setTestLoading(false);
-      console.log('=== Gmail Sync API 테스트 종료 ===');
+      console.log('=== Gmail Sync & Supabase 조회 완료 ===');
     }
   };
 
@@ -1356,6 +1362,115 @@ ${report.analysis.tokenValid && report.analysis.gmailAccessible && report.analys
               )}
             </CardContent>
           </Card>
+
+          {/* Gmail 동기화 데이터 표시 */}
+          {(gmailThreads.length > 0 || loading) && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="w-5 h-5" />
+                  동기화된 Gmail 데이터
+                  {loading && <span className="text-sm text-gray-500">(로딩 중...)</span>}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loading ? (
+                  <div className="text-center py-4">
+                    <div className="inline-flex items-center gap-2 text-gray-600">
+                      <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                      n8n에서 Gmail 데이터를 처리 중입니다...
+                    </div>
+                  </div>
+                ) : gmailThreads.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center text-sm text-gray-600">
+                      <span>총 {gmailThreads.length}개의 메일</span>
+                      <button 
+                        onClick={() => {
+                          const data = localStorage.getItem('gmail_emails_auto_sync');
+                          if (data) {
+                            console.log('로컬 스토리지 Gmail 데이터:', JSON.parse(data));
+                            alert('Console에 상세 데이터를 출력했습니다.');
+                          }
+                        }}
+                        className="text-blue-600 hover:text-blue-700"
+                      >
+                        상세 보기
+                      </button>
+                    </div>
+                    
+                    <div className="max-h-64 overflow-y-auto space-y-2">
+                      {gmailThreads.slice(0, 5).map((email, index) => (
+                        <div key={index} className="p-3 bg-gray-50 rounded-lg border">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <p className="font-medium text-sm text-gray-900 line-clamp-1">
+                                {email.subject || '제목 없음'}
+                              </p>
+                              <p className="text-xs text-gray-600 mt-1">
+                                {email.sender_email || email.from || '발신자 정보 없음'}
+                              </p>
+                              {email.mail_type && (
+                                <span className="inline-block mt-1 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">
+                                  {email.mail_type}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {email.received_at ? 
+                                new Date(email.received_at).toLocaleDateString() :
+                                '날짜 정보 없음'
+                              }
+                            </div>
+                          </div>
+                          
+                          {email.summary && (
+                            <p className="text-xs text-gray-600 mt-2 line-clamp-2">
+                              {email.summary}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                      
+                      {gmailThreads.length > 5 && (
+                        <div className="text-center py-2">
+                          <span className="text-sm text-gray-500">
+                            외 {gmailThreads.length - 5}개 더 있음
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex gap-2 pt-2 border-t">
+                      <button 
+                        onClick={() => {
+                          // 수동으로 다시 동기화
+                          window.location.reload();
+                        }}
+                        className="flex-1 px-3 py-2 text-sm bg-blue-50 text-blue-600 rounded hover:bg-blue-100"
+                      >
+                        🔄 새로고침
+                      </button>
+                      <button 
+                        onClick={() => {
+                          setGmailThreads([]);
+                          localStorage.removeItem('gmail_emails_auto_sync');
+                          alert('로컬 데이터를 삭제했습니다.');
+                        }}
+                        className="px-3 py-2 text-sm text-gray-600 border rounded hover:bg-gray-50"
+                      >
+                        🗑️ 삭제
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-4 text-gray-500">
+                    아직 동기화된 Gmail 데이터가 없습니다.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* App Settings */}
           <Card>
