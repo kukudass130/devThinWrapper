@@ -1,0 +1,77 @@
+반환 값은 다음과 같은 JSON 형태니까 너가 이 값을 통해 ui로 작성해주면 돼…
+[
+  {
+    "output": [
+      {
+        "mail_id": "19710a87487dc24b",
+        "subject": "‘Ain 지부 기획-개발자 매칭’ 양식이 공유됨",
+        "mail_type": "정보성",
+        "classification_reason": "업무 관련 중요한 일정 변경 정보",
+        "summary": "Ain 지부 기획-개발자 매칭 양식이 공유되었습니다. 링크를 통해 해당 문서를 열람할 수 있습니다."
+      },
+      {
+        "mail_id": "1973a4e9215349d1",
+        "subject": "주간 업무 보고서 - 바꾸기: ‘5’을(를) ‘6’(으)로 바꿈 ",
+        "mail_type": "정보성",
+        "classification_reason": "업무 관련 제안 사항으로, 팀원 간의 협업을 위한 중요한 정보입니다.",
+        "summary": "주간 업무 보고서에 대한 제안사항이 추가되었습니다. 팀원 간의 협업을 위한 내용입니다."
+      },
+      {
+        "mail_id": "19725487456d233f",
+        "subject": "[Action Advised] Protect your applications and enhance your security",
+        "mail_type": "광고성",
+        "classification_reason": "Google Auth Platform의 보안 관련 광고로, 사용자의 주의를 끌기 위한 내용입니다.",
+        "summary": "OAuth 클라이언트가 6개월 이상 비활성 상태일 경우 자동으로 삭제된다는 내용의 공지입니다."
+      },
+      {
+        "mail_id": "1971b1d70a6ba621",
+        "subject": "Your Supabase Project MunJinYeong's Project is inactive.",
+        "mail_type": "정보성",
+        "classification_reason": "Supabase 프로젝트의 비활성 상태에 대한 경고로, 사용자가 조치를 취해야 함을 알립니다.",
+        "summary": "Supabase 프로젝트가 비활성 상태로 확인되어, 몇 일 내에 일시 정지될 예정입니다."
+      },
+      {
+        "mail_id": "197109e8bb5651a7",
+        "subject": "‘가천대학교 매미/문진영 : 채널링 - AI 기반 유튜브 콘텐츠 리포트 서비스’ 스프레드시트가 공유됨",
+        "mail_type": "정보성",
+        "classification_reason": "업무 관련 중요한 자료 공유로, 팀원들에게 필요한 정보입니다.",
+        "summary": "가천대학교 매미/문진영님이 유튜브 콘텐츠 리포트 서비스 스프레드시트를 공유했습니다."
+      },
+      {
+        "mail_id": "19748c0903cb5f9c",
+        "subject": "Your n8n trial ends soon (it’s been fun, right?)",
+        "mail_type": "광고성",
+        "classification_reason": "n8n의 무료 체험 종료를 알리는 광고성 이메일입니다.",
+        "summary": "n8n 무료 체험이 곧 종료되며, 사용자가 업그레이드를 고려하도록 유도하는 내용입니다."
+      },
+      {
+        "mail_id": "1971fea9e977dc23",
+        "subject": "\"신분증.jpg\" 항목이 나와 공유되었습니다",
+        "mail_type": "정보성",
+        "classification_reason": "중요한 개인 정보 공유로, 수신자에게 필요한 정보입니다.",
+        "summary": "신분증 이미지 파일이 공유되었습니다. 링크를 통해 확인할 수 있습니다."
+      },
+      {
+        "mail_id": "1971fe9aaf6be85c",
+        "subject": "‘ThinWrapper Idea.pptx’ 프레젠테이션이 공유됨",
+        "mail_type": "정보성",
+        "classification_reason": "업무 관련 프레젠테이션 자료 공유로, 팀원들에게 필요한 정보입니다.",
+        "summary": "ThinWrapper Idea 프레젠테이션이 공유되었습니다. 링크를 통해 열람할 수 있습니다."
+      },
+      {
+        "mail_id": "1973c7035c2c01a5",
+        "subject": "Important Updates to Your FlutterFlow Free Plan",
+        "mail_type": "광고성",
+        "classification_reason": "FlutterFlow의 무료 플랜 변경 사항을 알리는 광고성 이메일입니다.",
+        "summary": "FlutterFlow의 무료 플랜에 대한 업데이트가 있으며, 사용자가 주의해야 할 사항이 포함되어 있습니다."
+      },
+      {
+        "mail_id": "1973b522cf78bf7b",
+        "subject": "[Action Required] Set up billing account with a valid payment method in your App Engine apps",
+        "mail_type": "광고성",
+        "classification_reason": "Google Cloud의 결제 계정 설정을 요구하는 광고성 이메일입니다.",
+        "summary": "App Engine 앱의 기본 버킷 사용을 위해 유효한 결제 계정을 설정해야 한다는 내용입니다."
+      }
+    ]
+  }
+]
