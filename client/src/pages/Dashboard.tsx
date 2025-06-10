@@ -1,248 +1,408 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Mail, Handshake, CalendarCheck, DollarSign, ArrowRight, TrendingUp, Filter, AlertCircle } from "lucide-react";
-import SponsorshipChart from "@/components/SponsorshipChart";
-import { isUnauthorizedError } from "@/lib/authUtils";
-import { useToast } from "@/hooks/use-toast";
-import { useEffect, useState } from "react";
+import { 
+  BarChart3, 
+  Mail, 
+  Star, 
+  TrendingUp, 
+  Users, 
+  DollarSign,
+  FileText,
+  Clock,
+  Calendar,
+  Target
+} from "lucide-react";
 import { ClassifiedEmail } from "@/types/email";
+import EmailDetailModal from "@/components/EmailDetailModal";
+
+interface EmailStats {
+  total: number;
+  sponsor: number;
+  regular: number;
+  sponsorRatio: number;
+  recentEmails: number; // 최근 7일 내 메일
+  todayEmails: number; // 오늘 받은 메일
+}
+
+interface StatCard {
+  title: string;
+  value: number | string;
+  description: string;
+  icon: any;
+  color: string;
+  bgColor: string;
+}
 
 export default function Dashboard() {
-  const [, setLocation] = useLocation();
-  const { toast } = useToast();
-  const [classifiedEmails, setClassifiedEmails] = useState<ClassifiedEmail[]>([]);
-
-  const { data: stats, isLoading: statsLoading, error: statsError } = useQuery({
-    queryKey: ["/api/dashboard/stats"],
+  const [location, setLocation] = useLocation();
+  const [emailStats, setEmailStats] = useState<EmailStats>({
+    total: 0,
+    sponsor: 0,
+    regular: 0,
+    sponsorRatio: 0,
+    recentEmails: 0,
+    todayEmails: 0
   });
+  const [recentSponsors, setRecentSponsors] = useState<ClassifiedEmail[]>([]);
+  const [selectedEmail, setSelectedEmail] = useState<ClassifiedEmail | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const { data: upcomingEvents, isLoading: eventsLoading } = useQuery({
-    queryKey: ["/api/calendar/upcoming"],
-  });
-
-  const { data: importantEmails, isLoading: emailsLoading } = useQuery({
-    queryKey: ["/api/emails", { category: "important" }],
-  });
-
-  // Load classified emails from localStorage
   useEffect(() => {
-    const stored = localStorage.getItem('gmail_classified_emails');
-    if (stored) {
-      try {
-        const emails = JSON.parse(stored);
-        // 유효한 이메일 데이터만 필터링
-        const validEmails = emails.filter((email: any) => 
-          email && 
-          email.mail_id && 
-          email.subject && 
-          email.mail_type && 
-          email.summary
-        );
-        setClassifiedEmails(validEmails);
-      } catch (error) {
-        console.error('Failed to parse stored emails:', error);
-        setClassifiedEmails([]);
-      }
-    }
+    loadEmailData();
   }, []);
 
-  // Handle unauthorized errors
-  useEffect(() => {
-    if (statsError && isUnauthorizedError(statsError)) {
-      toast({
-        title: "인증 필요",
-        description: "다시 로그인해주세요.",
-        variant: "destructive",
-      });
-      setTimeout(() => {
-        window.location.href = "/api/login";
-      }, 500);
-    }
-  }, [statsError, toast]);
+  const loadEmailData = () => {
+    try {
+      // 분류된 메일 데이터 로드
+      const classifiedData = localStorage.getItem('gmail_classified_emails');
+      
+      // Gmail 원본 데이터 로드 (시간 정보 포함)
+      const rawGmailData = localStorage.getItem('gmail_emails_auto_sync') || 
+                          localStorage.getItem('gmail_emails_from_supabase');
+      
+      if (classifiedData) {
+        const classifiedEmails = JSON.parse(classifiedData);
+        let enrichedEmails = classifiedEmails;
+        
+        // Gmail 원본 데이터가 있으면 시간 정보를 매칭
+        if (rawGmailData) {
+          const rawEmails = JSON.parse(rawGmailData);
+          
+          enrichedEmails = classifiedEmails.map((classifiedEmail: any) => {
+            const rawEmail = rawEmails.find((raw: any) => 
+              raw.id === classifiedEmail.mail_id || 
+              raw.thread_id === classifiedEmail.mail_id
+            );
+            
+            if (rawEmail) {
+              return {
+                ...classifiedEmail,
+                received_at: rawEmail.received_at,
+                sender: rawEmail.sender
+              };
+            }
+            return classifiedEmail;
+          });
+        }
 
-  if (statsLoading) {
-    return (
-      <div className="p-4 lg:p-8">
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <Card key={i} className="animate-pulse">
-                <CardContent className="p-6">
-                  <div className="h-20 bg-gray-200 rounded"></div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
+        const validEmails: ClassifiedEmail[] = enrichedEmails.filter((email: any) => 
+          email && email.mail_id && email.subject && email.mail_type && email.summary
+        );
+
+        // 날짜 기반 필터링
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+        const todayEmails = validEmails.filter(email => {
+          if (!email.received_at) return false;
+          const emailDate = new Date(email.received_at);
+          return emailDate >= today;
+        });
+
+        const recentEmails = validEmails.filter(email => {
+          if (!email.received_at) return false;
+          const emailDate = new Date(email.received_at);
+          return emailDate >= weekAgo;
+        });
+
+        const sponsorEmails = validEmails.filter(email => email.mail_type === '협찬메일');
+        const regularEmails = validEmails.filter(email => email.mail_type === '일반메일');
+
+        const sponsorRatio = validEmails.length > 0 ? (sponsorEmails.length / validEmails.length) * 100 : 0;
+
+        setEmailStats({
+          total: validEmails.length,
+          sponsor: sponsorEmails.length,
+          regular: regularEmails.length,
+          sponsorRatio: Math.round(sponsorRatio * 10) / 10,
+          recentEmails: recentEmails.length,
+          todayEmails: todayEmails.length
+        });
+
+        // 최근 협찬 메일 (최대 5개, 수신 시간순 정렬)
+        const recentSponsorEmails = sponsorEmails
+          .filter(email => email.received_at)
+          .sort((a, b) => new Date(b.received_at!).getTime() - new Date(a.received_at!).getTime())
+          .slice(0, 5);
+
+        setRecentSponsors(recentSponsorEmails);
+      }
+    } catch (error) {
+      console.error('Failed to load email data:', error);
+    }
+  };
+
+  const formatRelativeTime = (dateString?: string) => {
+    if (!dateString) return '시간 정보 없음';
+    
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    
+    if (diffHours < 24) {
+      return `${diffHours}시간 전`;
+    } else if (diffDays === 1) {
+      return '어제';
+    } else {
+      return `${diffDays}일 전`;
+    }
+  };
+
+  const getSenderName = (sender?: string) => {
+    if (!sender) return '발신자 정보 없음';
+    
+    // "Name <email@domain.com>" 형태에서 이름만 추출
+    const match = sender.match(/^"?([^"<]+)"?\s*<.*>$/);
+    if (match) {
+      return match[1].trim();
+    }
+    if (sender.includes('@')) {
+      return sender.split('@')[0];
+    }
+    return sender;
+  };
+
+  const getSponsorRatioColor = (ratio: number) => {
+    if (ratio >= 30) return 'text-green-600';
+    if (ratio >= 20) return 'text-yellow-600';
+    return 'text-blue-600';
+  };
+
+  const getSponsorRatioBgColor = (ratio: number) => {
+    if (ratio >= 30) return 'bg-green-100';
+    if (ratio >= 20) return 'bg-yellow-100';
+    return 'bg-blue-100';
+  };
+
+  // 메일 카드 클릭 핸들러
+  const handleEmailClick = (email: ClassifiedEmail) => {
+    setSelectedEmail(email);
+    setIsModalOpen(true);
+  };
+
+  // 모달 닫기 핸들러
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedEmail(null);
+  };
+
+  // 통계 카드 클릭 핸들러
+  const handleStatCardClick = (type: 'total' | 'today' | 'recent') => {
+    setLocation('/mailbox');
+  };
+
+  const mainStatCards: StatCard[] = [
+    {
+      title: "총 메일 수",
+      value: emailStats.total,
+      description: "분석된 전체 메일",
+      icon: Mail,
+      color: "text-blue-600",
+      bgColor: "bg-blue-100"
+    },
+    {
+      title: "협찬 비율",
+      value: `${emailStats.sponsorRatio}%`,
+      description: emailStats.sponsorRatio >= 30 ? "높은 협찬 기회!" : "협찬 메일 비율",
+      icon: Target,
+      color: getSponsorRatioColor(emailStats.sponsorRatio),
+      bgColor: getSponsorRatioBgColor(emailStats.sponsorRatio)
+    }
+  ];
+
+  const timeStatCards: StatCard[] = [
+    {
+      title: "오늘 받은 메일",
+      value: emailStats.todayEmails,
+      description: "24시간 내 수신",
+      icon: Clock,
+      color: "text-green-600",
+      bgColor: "bg-green-100"
+    },
+    {
+      title: "최근 7일 메일",
+      value: emailStats.recentEmails,
+      description: "최근 활동량",
+      icon: Calendar,
+      color: "text-purple-600",
+      bgColor: "bg-purple-100"
+    }
+  ];
 
   return (
     <div className="p-4 lg:p-8 space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900">대시보드</h1>
-        <p className="text-gray-600 mt-2">오늘의 활동 현황을 확인하세요</p>
+        <p className="text-gray-600 mt-2">인플루언서 메일 관리 현황을 한눈에 확인하세요</p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card 
-          className="cursor-pointer hover:shadow-lg transition-shadow"
-          onClick={() => setLocation("/mailbox")}
-        >
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">새 메일</p>
-                <p className="text-3xl font-bold text-gray-900">
-                  {stats?.newEmails || 0}
-                </p>
+      {/* Main Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {mainStatCards.map((stat, index) => (
+          <Card 
+            key={index} 
+            className={`relative overflow-hidden ${
+              stat.title === "총 메일 수" ? "cursor-pointer hover:shadow-lg transition-shadow" : ""
+            }`}
+            onClick={stat.title === "총 메일 수" ? () => handleStatCardClick('total') : undefined}
+          >
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className={`w-12 h-12 ${stat.bgColor} rounded-lg flex items-center justify-center`}>
+                  <stat.icon className={`w-6 h-6 ${stat.color}`} />
+                </div>
+                <span className={`text-3xl font-bold ${stat.color}`}>
+                  {stat.value}
+                </span>
               </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <Mail className="w-6 h-6 text-blue-600" />
+              <div className="mt-4">
+                <p className="text-sm font-medium text-gray-900">{stat.title}</p>
+                <p className="text-xs text-gray-500 mt-1">{stat.description}</p>
               </div>
-            </div>
-            <p className="text-sm text-green-600 mt-4 flex items-center">
-              <TrendingUp className="w-4 h-4 mr-1" />
-              오늘 +3개
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card 
-          className="cursor-pointer hover:shadow-lg transition-shadow"
-          onClick={() => setLocation("/calendar")}
-        >
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">이번달 협찬</p>
-                <p className="text-3xl font-bold text-gray-900">
-                  {stats?.monthlySponsors || 0}
-                </p>
+              {stat.title === "협찬 비율" && emailStats.sponsorRatio > 0 && (
+                <div className="mt-3">
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div 
+                      className={`h-2 rounded-full transition-all duration-300 ${
+                        emailStats.sponsorRatio >= 30 ? 'bg-green-500' :
+                        emailStats.sponsorRatio >= 20 ? 'bg-yellow-500' : 'bg-blue-500'
+                      }`}
+                      style={{ width: `${Math.min(emailStats.sponsorRatio, 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+            {stat.title === "협찬 비율" && emailStats.sponsorRatio >= 30 && (
+              <div className="absolute top-2 right-2">
+                <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse"></div>
               </div>
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <Handshake className="w-6 h-6 text-green-600" />
-              </div>
-            </div>
-            <p className="text-sm text-green-600 mt-4 flex items-center">
-              <TrendingUp className="w-4 h-4 mr-1" />
-              지난달 +15%
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card 
-          className="cursor-pointer hover:shadow-lg transition-shadow"
-          onClick={() => setLocation("/calendar")}
-        >
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">예정된 일정</p>
-                <p className="text-3xl font-bold text-gray-900">
-                  {stats?.scheduledEvents || 0}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                <CalendarCheck className="w-6 h-6 text-yellow-600" />
-              </div>
-            </div>
-            <p className="text-sm text-gray-600 mt-4">이번 주</p>
-          </CardContent>
-        </Card>
-
-        <Card 
-          className="cursor-pointer hover:shadow-lg transition-shadow"
-          onClick={() => setLocation("/calendar")}
-        >
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-600">이번달 수익</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  ₩{(stats?.monthlyRevenue || 0).toLocaleString()}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-6 h-6 text-purple-600" />
-              </div>
-            </div>
-            <p className="text-sm text-green-600 mt-4 flex items-center">
-              <TrendingUp className="w-4 h-4 mr-1" />
-              전월 대비 +22%
-            </p>
-          </CardContent>
-        </Card>
+            )}
+          </Card>
+        ))}
       </div>
 
-      {/* Gmail Classification Stats */}
-      {classifiedEmails.length > 0 && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-lg flex items-center gap-2">
-              <Filter className="w-5 h-5" />
-              Gmail 분류 현황
+      {/* Time-based Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {timeStatCards.map((stat, index) => (
+          <Card 
+            key={index}
+            className="cursor-pointer hover:shadow-lg transition-shadow"
+            onClick={() => handleStatCardClick(stat.title === "오늘 받은 메일" ? 'today' : 'recent')}
+          >
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className={`w-12 h-12 ${stat.bgColor} rounded-lg flex items-center justify-center`}>
+                  <stat.icon className={`w-6 h-6 ${stat.color}`} />
+                </div>
+                <span className={`text-3xl font-bold ${stat.color}`}>
+                  {stat.value}
+                </span>
+              </div>
+              <div className="mt-4">
+                <p className="text-sm font-medium text-gray-900">{stat.title}</p>
+                <p className="text-xs text-gray-500 mt-1">{stat.description}</p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Email Classification Summary */}
+      {emailStats.total > 0 && (
+        <Card className={`border-2 ${
+          emailStats.sponsorRatio >= 30 ? 'border-green-200 bg-gradient-to-r from-green-50 to-emerald-50' :
+          emailStats.sponsorRatio >= 20 ? 'border-yellow-200 bg-gradient-to-r from-yellow-50 to-orange-50' :
+          'border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50'
+        }`}>
+          <CardHeader>
+            <CardTitle className={`flex items-center gap-2 ${getSponsorRatioColor(emailStats.sponsorRatio)}`}>
+              <BarChart3 className="w-5 h-5" />
+              협찬 메일 분석 결과
             </CardTitle>
-            <Button 
-              variant="ghost" 
-              size="sm"
-              onClick={() => setLocation("/mailbox")}
-            >
-              전체보기 <ArrowRight className="w-4 h-4 ml-1" />
-            </Button>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-gray-900">
-                  {classifiedEmails.length}
-                </div>
-                <div className="text-sm text-gray-600">총 메일</div>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-700">분석된 총 메일 수</span>
+                <Badge variant="outline" className="text-blue-700 border-blue-200">
+                  {emailStats.total}개
+                </Badge>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">
-                  {classifiedEmails.filter(e => e.mail_type === '정보성').length}
-                </div>
-                <div className="text-sm text-gray-600">정보성</div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-700">협찬 메일 발견</span>
+                <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200">
+                  {emailStats.sponsor}개 🎯
+                </Badge>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">
-                  {classifiedEmails.filter(e => e.mail_type === '광고성').length}
-                </div>
-                <div className="text-sm text-gray-600">광고성</div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-700">일반 메일</span>
+                <Badge variant="outline" className="text-gray-700 border-gray-200">
+                  {emailStats.regular}개
+                </Badge>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">
-                  {Math.round((classifiedEmails.filter(e => e.mail_type === '정보성').length / classifiedEmails.length) * 100)}%
-                </div>
-                <div className="text-sm text-gray-600">정보성 비율</div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-700">협찬 비율</span>
+                <Badge className={`${getSponsorRatioBgColor(emailStats.sponsorRatio)} ${getSponsorRatioColor(emailStats.sponsorRatio)} border-0`}>
+                  {emailStats.sponsorRatio}% {emailStats.sponsorRatio >= 30 && '🚀'}
+                </Badge>
               </div>
+              
+              {emailStats.sponsorRatio >= 30 && (
+                <div className="mt-4 p-3 bg-green-100 border border-green-200 rounded-lg">
+                  <p className="text-green-800 text-sm font-medium">
+                    🎉 높은 협찬 기회! 30% 이상의 메일이 브랜드 협찬 관련입니다.
+                  </p>
+                </div>
+              )}
             </div>
-            
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recent Sponsor Emails */}
+      {recentSponsors.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-yellow-700">
+              <DollarSign className="w-5 h-5" />
+              최근 협찬 메일 ({recentSponsors.length}개)
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
             <div className="space-y-3">
-              <h4 className="font-medium text-gray-900">최근 분류된 메일</h4>
-              {classifiedEmails.slice(0, 3).map((email) => (
-                <div key={email.mail_id} className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors">
-                  <Badge 
-                    variant={email.mail_type === '정보성' ? 'default' : 'secondary'}
-                    className={email.mail_type === '정보성' ? 'bg-blue-100 text-blue-800' : 'bg-orange-100 text-orange-800'}
-                  >
-                    {email.mail_type}
-                  </Badge>
-                                     <div className="flex-1 min-w-0">
-                     <p className="text-sm font-medium text-gray-900 truncate">
-                       {email.subject || '제목 없음'}
-                     </p>
-                     <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                       {email.summary || '요약 없음'}
-                     </p>
-                   </div>
+              {recentSponsors.map((email) => (
+                <div 
+                  key={email.mail_id} 
+                  className="border border-yellow-200 rounded-lg p-4 bg-yellow-50/30 cursor-pointer hover:bg-yellow-100/50 transition-colors"
+                  onClick={() => handleEmailClick(email)}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900 mb-1">
+                        {email.subject}
+                      </h4>
+                      <div className="flex items-center gap-4 mb-2 text-sm text-gray-600">
+                        <span>📧 {getSenderName(email.sender)}</span>
+                        <span>⏰ {formatRelativeTime(email.received_at)}</span>
+                      </div>
+                      <p className="text-sm text-gray-600 line-clamp-2">
+                        {email.summary}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-2">
+                        <span className="font-medium">분류 이유:</span> {email.classification_reason}
+                      </p>
+                    </div>
+                    <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 ml-4">
+                      💰 협찬
+                    </Badge>
+                  </div>
                 </div>
               ))}
             </div>
@@ -250,130 +410,31 @@ export default function Dashboard() {
         </Card>
       )}
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Important Emails */}
-        <div className="lg:col-span-1">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-lg">중요한 메일</CardTitle>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => setLocation("/mailbox")}
-              >
-                전체보기 <ArrowRight className="w-4 h-4 ml-1" />
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {emailsLoading ? (
-                <div className="space-y-3">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="animate-pulse">
-                      <div className="h-16 bg-gray-200 rounded"></div>
-                    </div>
-                  ))}
-                </div>
-              ) : importantEmails && importantEmails.length > 0 ? (
-                <div className="space-y-4">
-                  {importantEmails.slice(0, 3).map((email: any) => (
-                    <div key={email.id} className="flex items-start space-x-3 p-3 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors">
-                      <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
-                          {email.subject}
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">
-                          {email.senderName}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-1">
-                          {new Date(email.createdAt).toLocaleDateString('ko-KR')}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-500 text-center py-8">
-                  중요한 메일이 없습니다
-                </p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Sponsorship Chart */}
-        <div className="lg:col-span-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>협찬 제의 현황</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <SponsorshipChart />
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* Upcoming Schedule */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-lg">다가오는 일정</CardTitle>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onClick={() => setLocation("/calendar")}
-          >
-            전체보기 <ArrowRight className="w-4 h-4 ml-1" />
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {eventsLoading ? (
-            <div className="space-y-4">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="animate-pulse">
-                  <div className="h-20 bg-gray-200 rounded"></div>
-                </div>
-              ))}
-            </div>
-          ) : upcomingEvents && upcomingEvents.length > 0 ? (
-            <div className="space-y-4">
-              {upcomingEvents.map((event: any) => (
-                <div key={event.id} className="flex items-center space-x-4 p-4 rounded-lg border border-gray-200">
-                  <div className="text-center">
-                    <div className="text-sm font-medium text-gray-500">
-                      {new Date(event.startDate).toLocaleDateString('ko-KR', { month: 'short' })}
-                    </div>
-                    <div className="text-2xl font-bold text-gray-900">
-                      {new Date(event.startDate).getDate()}
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900">{event.title}</h4>
-                    <p className="text-sm text-gray-500">
-                      {new Date(event.startDate).toLocaleTimeString('ko-KR', { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })} - {new Date(event.endDate).toLocaleTimeString('ko-KR', { 
-                        hour: '2-digit', 
-                        minute: '2-digit' 
-                      })}
-                      {event.location && ` | ${event.location}`}
-                    </p>
-                    <Badge variant="secondary" className="mt-1">
-                      {event.status === 'scheduled' ? '진행예정' : 
-                       event.status === 'completed' ? '완료' : '취소됨'}
-                    </Badge>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-gray-500 text-center py-8">
-              예정된 일정이 없습니다
+      {/* Empty State */}
+      {emailStats.total === 0 && (
+        <Card>
+          <CardContent className="p-12 text-center">
+            <Mail className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              메일 데이터가 없습니다
+            </h3>
+            <p className="text-gray-500 mb-6">
+              Mailbox에서 Gmail 동기화를 진행하거나 Settings에서 Google 로그인을 확인하세요.
             </p>
-          )}
-        </CardContent>
-      </Card>
+            <div className="space-y-2 text-sm text-gray-400">
+              <p>💡 Gmail 동기화 → AI 분류 → 협찬 메일 발견</p>
+              <p>📊 분석 결과가 이곳에 표시됩니다</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 메일 상세 모달 */}
+      <EmailDetailModal
+        email={selectedEmail}
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+      />
     </div>
   );
 }
